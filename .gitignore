@@ -30,3 +30,8 @@
 *.exe
 *.out
 *.app
+/.pioenvs/m5stack-core-esp32/*.bin
+/.pioenvs/m5stack-core-esp32/*.elf
+/.pioenvs/m5stack-core-esp32
+/.pioenvs/m5stack-core-esp32/*.bin
+/.pioenvs/m5stack-core-esp32/*.elf

@@ -1,182 +1,330 @@
-#include <M5ez.h>
+#include <vector>
 #include <SPIFFS.h>
-#include <ezTime.h>
+#include <Wifi.h>
+#include <M5Stack.h>
+#include <M5TreeView.h>
+#include <M5OnScreenKeyboard.h>
+#include <M5StackUpdater.h>
+#include <MenuItemSD.h>
+#include <MenuItemSPIFFS.h>
+#include <MenuItemWiFiClient.h>
+#include <Preferences.h>
+#include <esp_deep_sleep.h>
+#include <M5ButtonDrawer.h>
+//#include <MQTT.h>
 
-#include <WiFi.h>
-#include <MQTT.h>
 
-const char ssid[] = "telenet-ap-9907265";
-const char pass[] = "4kwxeZkheZ7k";
+#include "MPU9250Demo.h"
+//#include "MenuItemSDUpdater.h"
+#include "HeaderSample.h"
+#include "SystemInfo.h"
+#include "I2CScanner.h"
+//#include "WiFiWPS.h"
+// #include "CBFTPserver.h"
+// #include "CBFTPserverSPIFFS.h"
 
-WiFiClient net;
-MQTTClient client;
+/*
+Remarks:
+  Both M5OnScreenKeyboard and M5TreeView are included as local libraries as the official version does
+  not work with platformio yet.
+*/
 
-String exit_button = "Exit";
+//MQTTClient client;
+M5TreeView treeView;
+M5OnScreenKeyboard osk;
+HeaderSample header;
 
-void powerOff() { m5.powerOFF(); }
+typedef std::vector<MenuItem*> vmi;
 
-void mainmenu_ota() {
-  if (ez.msgBox("Get OTA_https demo", "This will replace the demo with a program that can then load the demo program again.", "Cancel#OK#") == "OK") {
-    ezProgressBar progress_bar("OTA update in progress", "Downloading ...", "Abort");
-    #include "raw_githubusercontent_com.h" // the root certificate is now in const char * root_cert
-    if (ez.wifi.update("https://raw.githubusercontent.com/ropg/M5ez/master/compiled_binaries/OTA_https.bin", root_cert, &progress_bar)) {
-      ez.msgBox("Over The Air updater", "OTA download successful. Reboot to new firmware", "Reboot");
-      ESP.restart();
-    } else {
-      ez.msgBox("OTA error", ez.wifi.updateError(), "OK");
+template <class T>
+void CallBackExec(MenuItem* sender)
+{
+  T menucallback;
+  menucallback(sender);
+}
+
+void MQTTdemo(){
+  // ez.screen.clear();
+  // ez.header.show("MQTT demo");
+  // ez.buttons.show("#" + exit_button + "#");
+
+  // ez.canvas.font(&FreeSans9pt7b);
+
+  // WiFi.begin(ssid, pass);
+
+  // // Note: Local domain names (e.g. "Computer.local" on OSX) are not supported by Arduino.
+  // // You need to set the IP address directly.
+  // client.begin("192.168.0.226", net);
+  // client.onMessage(messageReceived);
+  // connect();
+
+  //  while(true) {
+  //   String btn = ez.buttons.poll();
+  //   if (btn == "Exit") break;
+  //   client.loop();
+  // }
+}
+
+void UARTdemo(){
+  // String s(Serial.baudRate());
+  // ez.screen.clear();
+  // ez.header.show("UART demo");
+  // ez.buttons.show("#" + exit_button + "#" + s.c_str());
+  // ez.canvas.font(&FreeSans9pt7b);
+  //  while(true) {
+  //   String btn = ez.buttons.poll();
+  //   if (btn == "Exit") break;
+  //   s = Serial.readString();
+  //   if (s != "")
+  //   {
+  //     ez.canvas.println(s);
+  //     ez.header.show("UART demo");
+  //   }
+  //   client.loop();
+  // }
+}
+
+uint16_t publish()
+{
+  // client.loop();
+  // delay(10);  // <- fixes some issues with WiFi stability
+
+  // if (!client.connected()) {
+  //   connect();
+  // }
+
+  // client.publish("/hello", "world");
+  // return 1000;
+}
+
+void drawFrame() {
+  Rect16 r = treeView.clientRect;
+  r.inflate(1);
+  M5.Lcd.drawRect(r.x -1, r.y, r.w +2, r.h, MenuItem::frameColor[1]);
+  M5.Lcd.drawRect(r.x, r.y -1, r.w, r.h +2, MenuItem::frameColor[1]);
+}
+
+void FileView(File ff){
+  M5.Lcd.setTextColor(0xffff,0);
+  M5.Lcd.setCursor(0,0);
+  size_t len = ff.size();
+  uint8_t buf[256];
+
+  if (ff.read(buf, len)) {
+    for(int i=0; i<len; ++i){
+      M5.Lcd.write(buf[i]);
     }
   }
 }
 
-void sysInfoPage1() {
-  const byte tab = 120;
-  ez.screen.clear();
-  ez.header.show("System Info  (1/2)");
-  ez.buttons.show("#" + exit_button + "#down");
-  ez.canvas.font(&FreeSans9pt7b);
-  ez.canvas.lmargin(10);
-  ez.canvas.println("");
-  ez.canvas.print("CPU freq:");  ez.canvas.x(tab); ez.canvas.println(String(ESP.getCpuFreqMHz()) + " MHz");
-  ez.canvas.print("CPU cores:");  ez.canvas.x(tab); ez.canvas.println("2");    //   :)
-  ez.canvas.print("Chip rev.:");  ez.canvas.x(tab); ez.canvas.println(String(ESP.getChipRevision()));
-  ez.canvas.print("Flash speed:");  ez.canvas.x(tab); ez.canvas.println(String(ESP.getFlashChipSpeed() / 1000000) + " MHz");
-  ez.canvas.print("Flash size:");  ez.canvas.x(tab); ez.canvas.println(String(ESP.getFlashChipSize() / 1000000) + " MB");
-  ez.canvas.print("ESP SDK:");  ez.canvas.x(tab); ez.canvas.println(String(ESP.getSdkVersion()));
-  ez.canvas.print("M5ez:");  ez.canvas.x(tab); ez.canvas.println(String(ez.version()));
-}
-
-void sysInfoPage2() {
-  const String SD_Type[5] = {"NONE", "MMC", "SD", "SDHC", "UNKNOWN"};
-  const byte tab = 140;
-  ez.screen.clear();
-  ez.header.show("System Info  (2/2)");
-  ez.buttons.show("up#" + exit_button + "#");
-  ez.canvas.font(&FreeSans9pt7b);
-  ez.canvas.lmargin(10);
-  ez.canvas.println("");
-  ez.canvas.print("Free RAM:");  ez.canvas.x(tab);  ez.canvas.println(String((long)ESP.getFreeHeap()) + " bytes");
-  ez.canvas.print("Min. free seen:");  ez.canvas.x(tab); ez.canvas.println(String((long)esp_get_minimum_free_heap_size()) + " bytes");
-  const int sd_type = SD.cardType();
-  
-  SPIFFS.begin();
-  ez.canvas.print("SPIFFS size:"); ez.canvas.x(tab); ez.canvas.println(String((long)SPIFFS.totalBytes()) + " bytes");
-  ez.canvas.print("SPIFFS used:"); ez.canvas.x(tab); ez.canvas.println(String((long)SPIFFS.usedBytes()) + " bytes");
-  ez.canvas.print("SD type:"); ez.canvas.x(tab); ez.canvas.println(SD_Type[sd_type]);
-  if (sd_type != 0) {
-    ez.canvas.print("SD size:"); ez.canvas.x(tab); ez.canvas.println(String((long)SD.cardSize()  / 1000000) + " MB");
-    ez.canvas.print("SD used:"); ez.canvas.x(tab); ez.canvas.println(String((long)SD.usedBytes()  / 1000000) + " MB");
-  }
-}
-
-void sysInfo() {
-  sysInfoPage1();
-  while(true) {
-    String btn = ez.buttons.poll();
-    if (btn == "up") sysInfoPage1();
-    if (btn == "down") sysInfoPage2();
-    if (btn == "Exit") break;
-  }
-}
-
-void sensors(){
-  ez.header.show("Sensor readings");
-  ez.buttons.show("#" + exit_button + "#");
-  ez.canvas.font(&FreeSans9pt7b);
-  ez.canvas.lmargin(10);
-  ez.canvas.println("");
-  ez.canvas.printf("%d", analogRead(ADC1));
-  while(true) {
-    String btn = ez.buttons.poll();
-     if (btn == "Exit") break;
-  }
-}
-
-void messageReceived(String &topic, String &payload) {  
-  Serial.println("incoming: " + topic + " - " + payload);
-  ez.canvas.println("incoming: " + topic + " - " + payload);
-}
-
-void connect() {
-  Serial.print("checking wifi...");
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(1000);
-  }
-
-  Serial.print("\nconnecting...");
-  while (!client.connect("arduino", "try", "try")) {
-    Serial.print(".");
-    delay(1000);
-  }
-
-  Serial.println("\nconnected!");
-
-
-  client.subscribe("#");
-  // client.unsubscribe("/hello");
-  Serial.println("\nsubscribed to #!");
-  client.subscribe("a");
-  Serial.println("\nsubscribed to a!");
-}
-
-void MQTTdemo(){
-  ez.screen.clear();
-  ez.header.show("MQTT demo");
-  ez.buttons.show("#" + exit_button + "#");
-
-  
-  ez.canvas.font(&FreeSans9pt7b);
-
-  WiFi.begin(ssid, pass);
-  
-  // Note: Local domain names (e.g. "Computer.local" on OSX) are not supported by Arduino.
-  // You need to set the IP address directly.
-  client.begin("192.168.0.226", net);
-  client.onMessage(messageReceived);  
-  connect();
-
-   while(true) {
-    String btn = ez.buttons.poll();
-    if (btn == "Exit") break;
-    client.loop();    
-  }
-}
-
-unsigned long lastMillis = 0;
-
-uint16_t publish()
+void CallBackWiFiClient(MenuItem* sender)
 {
-  client.loop();
-  delay(10);  // <- fixes some issues with WiFi stability
+  // MenuItemWiFiClient* mi = static_cast<MenuItemWiFiClient*>(sender);
+  // if (!mi) return;
 
-  if (!client.connected()) {
-    connect();
+  // if (mi->ssid == "") return;
+
+  // Preferences preferences;
+  // preferences.begin("wifi-config");
+  // preferences.putString("WIFI_SSID", mi->ssid);
+  // String wifi_passwd = preferences.getString("WIFI_PASSWD");
+
+  // if (mi->auth != WIFI_AUTH_OPEN) {
+  //   osk.setup(wifi_passwd);
+  //   while (osk.loop()) { delay(1); }
+  //   wifi_passwd = osk.getString();
+  //   osk.close();
+  //   WiFi.disconnect();
+  //   WiFi.begin(mi->ssid.c_str(), wifi_passwd.c_str());
+  //   preferences.putString("WIFI_PASSWD", wifi_passwd);
+  // } else {
+  //   WiFi.disconnect();
+  //   WiFi.begin(mi->ssid.c_str(), "");
+  //   preferences.putString("WIFI_PASSWD", "");
+  // }
+  // preferences.end();
+  // while (M5.BtnA.isPressed()) M5.update();
+}
+
+void CallBackWiFiDisconnect(MenuItem* sender)
+{
+ // WiFi.disconnect(true);
+}
+
+void CallBackDeepSleep(MenuItem* sender)
+{
+   esp_deep_sleep_start();
+}
+
+void CallBackBrightness(MenuItem* sender)
+{
+  MenuItemNumeric* mi = static_cast<MenuItemNumeric*>(sender);
+  if (!mi) return;
+  M5.Lcd.setBrightness(mi->value);
+}
+
+void CallBackDACtest(MenuItem* sender)
+{
+  MenuItemNumeric* mi = static_cast<MenuItemNumeric*>(sender);
+  if (!mi) return;
+
+  pinMode(mi->tag, OUTPUT);
+  dacWrite(mi->tag, mi->value);
+}
+
+void CallBackFS(MenuItem* sender)
+{
+  MenuItemFS* mi = static_cast<MenuItemFS*>(sender);
+  if (!mi) return;
+
+  if (mi->isDir) return;
+
+  M5.Lcd.clear(0);
+  int idx = mi->path.lastIndexOf('.') + 1;
+  String ext = mi->path.substring(idx);
+  if (ext == "jpg") {
+    M5.Lcd.drawJpgFile(mi->getFS(), mi->path.c_str());
+  } else {
+    File file = mi->getFS().open(mi->path, FILE_READ);
+    if (!file.isDirectory()) {
+      FileView(file);
+    }
+    file.close();
   }
-
-  client.publish("/hello", "world");
-  return 1000;
+  M5ButtonDrawer btnDrawer;
+  btnDrawer.setText("Back","","");
+  btnDrawer.draw(true);
+  while (!M5.BtnA.wasReleased()) M5.update();
 }
 
 void setup() {
-  #include <themes/default.h>
-  #include <themes/dark.h>
+  M5.begin();
+  Wire.begin();
+  if(digitalRead(BUTTON_A_PIN) == 0) {
+     Serial.println("Will Load menu binary");
+     updateFromFS(SD);
+     ESP.restart();
+  }
+  M5.Lcd.setBrightness(200);
 
-  ezt::setDebug(DEBUG);
-  ez.begin();
-  ez.setFreeFont(&FreeSansBold9pt7b);
- // ez.addEvent(&publish);
+  treeView.clientRect.x = 2;
+  treeView.clientRect.y = 16;
+  treeView.clientRect.w = 316;
+  treeView.clientRect.h = 200;
+  treeView.itemWidth    = 220;
+
+  treeView.useFACES       = true;
+  treeView.useJoyStick    = true;
+  treeView.usePLUSEncoder = true;
+
+  treeView.fontColor[0]  = 0xFFFF;
+  treeView.backColor[0]  = 0x0000;
+  treeView.frameColor[0] = 0xA514;
+  treeView.fontColor[1]  = 0x0000;
+  treeView.backColor[1]  = 0xFFF8;
+  treeView.frameColor[1] = 0xFFFF;
+  treeView.backgroundColor = 0x4208;
+  treeView.font            = 2;
+  treeView.itemHeight      = 20;
+  M5ButtonDrawer::height   = 20;
+  M5ButtonDrawer::width    = 80;
+
+  osk.useTextbox     = true;
+  osk.useFACES       = true;
+  osk.useCardKB      = true;
+  osk.useJoyStick    = true;
+  osk.usePLUSEncoder = true;
+  osk.msecHold   = treeView.msecHold;
+  osk.msecRepeat = treeView.msecRepeat;
+
+  treeView.setItems(vmi
+  { new MenuItem("Devices", vmi
+      { new MenuItem("MPU9250", CallBackExec<MPU9250Demo>) }
+    )
+    , new MenuItem("Numeric Sample ", vmi
+    { new MenuItemNumeric("Brightness", 0, 255, 80, CallBackBrightness)
+    , new MenuItemNumeric("GPIO25 DAC", 0, 255, 0, 25, CallBackDACtest)
+    , new MenuItemNumeric("GPIO26 DAC", 0, 255, 0, 26, CallBackDACtest)
+    } )
+  , new MenuItem("WiFi ", vmi
+    {
+      //new MenuItemWiFiClient("WiFi Client", CallBackWiFiClient)
+    //,
+     new MenuItem("WiFi mode", vmi
+      { new MenuItem("WiFi disconnect(true)", 2000)
+      , new MenuItem("WiFi mode OFF", 2001)
+      , new MenuItem("WiFi mode STA", 2002)
+      , new MenuItem("WiFi mode AP" , 2003)
+      , new MenuItem("WiFi mode AP STA", 2004)
+      ,new MenuItem("WiFi ", vmi
+                 {
+                   //new MenuItemWiFiClient("WiFi Client", CallBackWiFiClient)
+                 //, new MenuItem("WiFi WPS", WiFiWPS())
+                 //,
+                 new MenuItem("WiFi disconnect", CallBackWiFiDisconnect)
+                 } )
+               , new MenuItem("Tools", vmi
+                 { new MenuItem("System Info", SystemInfo())
+                 , new MenuItem("I2C Scanner", I2CScanner())
+                //  , new MenuItem("FTP Server (SDcard)", CBFTPserver())
+                //  , new MenuItem("FTP Server (SPIFFS)", CBFTPserverSPIFFS())
+                 } )
+               //, new MenuItemSDUpdater("SD Updater")
+               , new MenuItemSD("SD card")
+               , new MenuItemSPIFFS("SPIFFS")
+               , new MenuItem("DeepSleep", CallBackDeepSleep)
+    } )
+  } )
+  , new MenuItemSD("SD card", CallBackFS)
+  , new MenuItemSPIFFS("SPIFFS", CallBackFS)
+}
+  );
+
+  treeView.begin();
+  drawFrame();
 }
 
 void loop() {
-   ezMenu mainmenu("Concepts ESP32");
-  mainmenu.txtSmall();
-  mainmenu.addItem("Built-in wifi & other settings", ez.settings.menu);
-  mainmenu.addItem("Updates via https", mainmenu_ota);
-  mainmenu.addItem("System info", sysInfo);
-  mainmenu.addItem("Sensors", sensors);
-  mainmenu.addItem("MQTT demo", MQTTdemo);
+  MenuItem* mi = treeView.update();
+   if (treeView.isRedraw()) {
+     drawFrame();
+   }
 
-  mainmenu.upOnFirst("last|up");
-  mainmenu.downOnLast("first|down");
-  mainmenu.run();
+  //if (!(loopcounter % 10))  header.draw();
+
+  if (mi != NULL) {
+    switch (mi->tag) {
+    default: return;
+    // case 2000:
+    //   WiFi.disconnect(true);
+    //   return;
+
+    // case 2001:
+    //   WiFi.mode(WIFI_OFF);
+    //   return;
+
+    // case 2002:
+    //   WiFi.mode(WIFI_STA);
+    //   return;
+
+    // case 2003:
+    //   WiFi.mode(WIFI_AP);
+    //   return;
+
+    // case 2004:
+    //   WiFi.mode(WIFI_AP_STA);
+    //   return;
+    //
+     }
+    for (int i = 0; i < 2; ++i) {
+      M5ButtonDrawer::fontColor[i] = treeView.fontColor[i];
+      M5ButtonDrawer::backColor[i] = treeView.backColor[i];
+      M5ButtonDrawer::frameColor[i] = treeView.frameColor[i];
+      osk.fontColor[i] = treeView.fontColor[i];
+      osk.backColor[i] = treeView.backColor[i];
+      osk.frameColor[i]= treeView.frameColor[i];
+    }
+    M5ButtonDrawer::font = treeView.font;
+    M5.Lcd.fillRect(0, 218, M5.Lcd.width(), 22, 0);
+  }
 }
